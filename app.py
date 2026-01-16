@@ -22,7 +22,7 @@ if "user_name" not in st.session_state:
 
 # ---------------- LOGIN PAGE ----------------
 def login_page():
-    st.title("📚 Library Recommendation Server")
+    st.title("📚 Library Recommendation Serv")
     st.subheader("🔐 Secure Login")
 
     email = st.text_input("Email")
