@@ -1,197 +1,118 @@
+import os
+import sys
+import pickle
 import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import bcrypt
-from datetime import date
+import numpy as np
+from books_recommender.logger.log import logging
+from books_recommender.config.configuration import AppConfiguration
+from books_recommender.pipeline.training_pipeline import TrainingPipeline
+from books_recommender.exception.exception_handler import AppException
 
-# ================== PAGE CONFIG ==================
-st.set_page_config(
-    page_title="Library Recommendation Server",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
-# ================== CUSTOM CSS ==================
-def load_css(dark=False):
-    if dark:
-        st.markdown("""
-        <style>
-        body { background-color: #0e1117; color: white; }
-        .card {
-            background: #1e222d;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.4);
-        }
-        </style>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <style>
-        .card {
-            background: #ffffff;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        </style>
-        """, unsafe_allow_html=True)
+class Recommendation:
+    def __init__(self,app_config = AppConfiguration()):
+        try:
+            self.recommendation_config= app_config.get_recommendation_config()
+        except Exception as e:
+            raise AppException(e, sys) from e
 
-# ================== OWNER CONFIG ==================
-OWNER_EMAIL = "Kawalkar123@gmail.com"
-OWNER_REF_CODE = "Govi123"
-OWNER_PASSWORD_HASH = bcrypt.hashpw("GoviGod12".encode(), bcrypt.gensalt())
 
-# ================== SESSION ==================
-for key, val in {
-    "logged_in": False,
-    "role": None,
-    "user_name": "",
-    "dark_mode": False,
-    "databases": []
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+    def fetch_poster(self,suggestion):
+        try:
+            book_name = []
+            ids_index = []
+            poster_url = []
+            book_pivot =  pickle.load(open(self.recommendation_config.book_pivot_serialized_objects,'rb'))
+            final_rating =  pickle.load(open(self.recommendation_config.final_rating_serialized_objects,'rb'))
 
-load_css(st.session_state.dark_mode)
+            for book_id in suggestion:
+                book_name.append(book_pivot.index[book_id])
 
-# ================== HEADER ==================
-col1, col2 = st.columns([10, 1])
-with col2:
-    if st.button("🌗"):
-        st.session_state.dark_mode = not st.session_state.dark_mode
-        st.rerun()
+            for name in book_name[0]: 
+                ids = np.where(final_rating['title'] == name)[0][0]
+                ids_index.append(ids)
 
-# ================== LOGIN PAGE ==================
-def login_page():
-    st.markdown("<h2 style='text-align:center;'>📚 Library Recommendation Server</h2>", unsafe_allow_html=True)
+            for idx in ids_index:
+                url = final_rating.iloc[idx]['image_url']
+                poster_url.append(url)
 
-    col1, col2, col3 = st.columns([3,4,3])
-    with col2:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("🔐 Secure Login")
+            return poster_url
+        
+        except Exception as e:
+            raise AppException(e, sys) from e
+        
 
-        email = st.text_input("📧 Email")
-        password = st.text_input("🔑 Password", type="password")
 
-        if st.button("Login", use_container_width=True):
-            if email == OWNER_EMAIL and bcrypt.checkpw(password.encode(), OWNER_PASSWORD_HASH):
-                st.session_state.logged_in = True
-                st.session_state.role = "OWNER"
-                st.session_state.user_name = "Govind Kawalkar"
-                st.success("Login successful")
-                st.rerun()
-            else:
-                st.error("Invalid credentials")
+    def recommend_book(self,book_name):
+        try:
+            books_list = []
+            model = pickle.load(open(self.recommendation_config.trained_model_path,'rb'))
+            book_pivot =  pickle.load(open(self.recommendation_config.book_pivot_serialized_objects,'rb'))
+            book_id = np.where(book_pivot.index == book_name)[0][0]
+            distance, suggestion = model.kneighbors(book_pivot.iloc[book_id,:].values.reshape(1,-1), n_neighbors=6 )
 
-        st.markdown("</div>", unsafe_allow_html=True)
+            poster_url = self.fetch_poster(suggestion)
+            
+            for i in range(len(suggestion)):
+                    books = book_pivot.index[suggestion[i]]
+                    for j in books:
+                        books_list.append(j)
+            return books_list , poster_url   
+        
+        except Exception as e:
+            raise AppException(e, sys) from e
 
-# ================== SIDEBAR ==================
-def sidebar_menu():
-    st.sidebar.markdown("## 📘 Library Panel")
-    st.sidebar.write(f"👤 **{st.session_state.user_name}**")
 
-    return st.sidebar.radio(
-        "Navigation",
-        [
-            "📊 Dashboard",
-            "📚 Book Catalog",
-            "📦 Upcoming Stock",
-            "✅ Available Stock",
-            "🔄 Issue & Return",
-            "🆕 New Stock Database",
-            "🚪 Logout"
-        ]
-    )
+    def train_engine(self):
+        try:
+            obj = TrainingPipeline()
+            obj.start_training_pipeline()
+            st.text("Training Completed!")
+            logging.info(f"Recommended successfully!")
+        except Exception as e:
+            raise AppException(e, sys) from e
 
-# ================== DASHBOARD ==================
-def dashboard():
-    st.title("📊 Dashboard Overview")
+    
+    def recommendations_engine(self,selected_books):
+        try:
+            recommended_books,poster_url = self.recommend_book(selected_books)
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.text(recommended_books[1])
+                st.image(poster_url[1])
+            with col2:
+                st.text(recommended_books[2])
+                st.image(poster_url[2])
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("📚 Total Books", "12,450")
-    c2.metric("📖 Issued Today", "124")
-    c3.metric("👥 Active Users", "842")
+            with col3:
+                st.text(recommended_books[3])
+                st.image(poster_url[3])
+            with col4:
+                st.text(recommended_books[4])
+                st.image(poster_url[4])
+            with col5:
+                st.text(recommended_books[5])
+                st.image(poster_url[5])
+        except Exception as e:
+            raise AppException(e, sys) from e
 
-    st.markdown("---")
 
-    col1, col2 = st.columns(2)
 
-    data = pd.DataFrame({
-        "Month": ["Jan", "Feb", "Mar", "Apr"],
-        "Books Issued": [120, 90, 150, 110]
-    })
+if __name__ == "__main__":
+    st.header('End to End Books Recommender System')
+    st.text("This is a collaborative filtering based recommendation system!")
 
-    with col1:
-        st.subheader("📊 Monthly Issue Analysis")
-        fig, ax = plt.subplots()
-        ax.bar(data["Month"], data["Books Issued"])
-        st.pyplot(fig)
+    obj = Recommendation()
 
-    with col2:
-        st.subheader("🥧 Category Distribution")
-        fig2, ax2 = plt.subplots()
-        ax2.pie([40, 30, 20, 10],
-                labels=["Science", "Arts", "Commerce", "Other"],
-                autopct="%1.1f%%")
-        st.pyplot(fig2)
+    #Training
+    if st.button('Train Recommender System'):
+        obj.train_engine()
 
-    st.subheader("📈 Progress Report")
-    st.progress(0.7)
-
-    st.subheader("📅 Events & Holidays (Date-wise)")
-    events = pd.DataFrame({
-        "Date": [date(2026,1,26), date(2026,8,15)],
-        "Event": ["Republic Day Holiday", "Independence Day – Book Fair"]
-    })
-    st.dataframe(events, use_container_width=True)
-
-# ================== NEW STOCK DATABASE ==================
-def new_stock_database():
-    st.title("🆕 New Stock Database")
-
-    if st.session_state.role != "OWNER":
-        st.error("Only OWNER can access this module")
-        return
-
-    st.subheader("📂 Upload Stock File")
-    file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"])
-
-    if file:
-        if file.name.endswith(".csv"):
-            df = pd.read_csv(file)
-        else:
-            df = pd.read_excel(file)
-
-        st.success("File uploaded successfully")
-        st.dataframe(df, use_container_width=True)
-
-        if st.button("Save to Database"):
-            st.session_state.databases.append({
-                "Name": file.name,
-                "Rows": df.shape[0],
-                "Date": date.today()
-            })
-            st.success("Database saved")
-
-    st.subheader("📁 Existing Databases")
-    if st.session_state.databases:
-        st.dataframe(pd.DataFrame(st.session_state.databases), use_container_width=True)
-    else:
-        st.info("No database available")
-
-# ================== MAIN ==================
-if not st.session_state.logged_in:
-    login_page()
-else:
-    menu = sidebar_menu()
-
-    if menu == "📊 Dashboard":
-        dashboard()
-    elif menu == "🆕 New Stock Database":
-        new_stock_database()
-    elif menu == "🚪 Logout":
-        st.session_state.logged_in = False
-        st.rerun()
-    else:
-        st.info("🚧 Module under development")
+    book_names = pickle.load(open(os.path.join('templates','book_names.pkl') ,'rb'))
+    selected_books = st.selectbox(
+        "Type or select a book from the dropdown",
+        book_names)
+    
+    #recommendation
+    if st.button('Show Recommendation'):
+        obj.recommendations_engine(selected_books)
