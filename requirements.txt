@@ -1,6 +1,5 @@
-scikit-learn 
-pandas 
-numpy
-PyYAML
 streamlit
--e .
+numpy
+pandas
+scikit-learn
+pickle-mixin
