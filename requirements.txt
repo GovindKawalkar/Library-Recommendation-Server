@@ -1,4 +1,6 @@
+scikit-learn 
+pandas 
+numpy
+PyYAML
 streamlit
-pandas
-matplotlib
-bcrypt
+-e .
